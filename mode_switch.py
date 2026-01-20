@@ -20,6 +20,8 @@ class ModeSwitch(plugins.Plugin):
     # Filesystem triggers monitored by the watchdog thread.
     # These allow hardware buttons (via shell scripts) to trigger plugin actions.
     TRIGGER_SWITCH = "/tmp/pwn_switch_request"
+    TRIGGER_SHUTDOWN = "/tmp/pwn_shutdown"
+    TRIGGER_REBOOT = "/tmp/pwn_reboot"
     TRIGGER_TEST   = "/tmp/pwn_ui_test"
     TRIGGER_CANCEL = "/tmp/pwn_cancel"
 
@@ -79,6 +81,10 @@ class ModeSwitch(plugins.Plugin):
         """
         if path == 'toggle':
             return self._initiate_switch("Webhook")
+        elif path == 'shutdown':
+            return self._initiate_shutdown("Webhook")
+        elif path == 'reboot':
+            return self._initiate_reboot("Webhook")
         elif path == 'test':
             return self._run_test_ui("Webhook")
         elif path == 'cancel':
@@ -94,6 +100,14 @@ class ModeSwitch(plugins.Plugin):
             if os.path.exists(self.TRIGGER_SWITCH):
                 self._safe_remove(self.TRIGGER_SWITCH)
                 self._initiate_switch("Filesystem")
+
+            if os.path.exists(self.TRIGGER_SHUTDOWN):
+                self._safe_remove(self.TRIGGER_SHUTDOWN)
+                self._initiate_shutdown("Filesystem")
+            
+            if os.path.exists(self.TRIGGER_REBOOT):
+                self._safe_remove(self.TRIGGER_REBOOT)
+                self._initiate_reboot("Filesystem")
             
             if os.path.exists(self.TRIGGER_TEST):
                 self._safe_remove(self.TRIGGER_TEST)
@@ -172,6 +186,44 @@ class ModeSwitch(plugins.Plugin):
             threading.Thread(target=self._countdown_and_execute, args=(cmd, delay)).start()
             
             return f"Restarting into {target_mode} in {delay} seconds... (Trigger 'cancel' to abort)"
+
+    def _initiate_shutdown(self, source):
+        """
+        Initiates a system shutdown with UI feedback.
+        """
+        with self.lock:
+            if not self.agent: return "Agent not ready."
+            if self.restart_pending: return "Action already in progress."
+
+            self.restart_pending = True
+            self.cancel_event.clear()
+            delay = self.options.get('restart_delay', 5)
+
+            self.log.info(f"[{source}] Initiating SHUTDOWN in {delay}s")
+            self._show_splash_screen("SHUTDOWN")
+
+            cmd = "shutdown -h now"
+            threading.Thread(target=self._countdown_and_execute, args=(cmd, delay)).start()
+            return f"Shutting down in {delay} seconds..."
+
+    def _initiate_reboot(self, source):
+        """
+        Initiates a system reboot with UI feedback.
+        """
+        with self.lock:
+            if not self.agent: return "Agent not ready."
+            if self.restart_pending: return "Action already in progress."
+
+            self.restart_pending = True
+            self.cancel_event.clear()
+            delay = self.options.get('restart_delay', 5)
+
+            self.log.info(f"[{source}] Initiating REBOOT in {delay}s")
+            self._show_splash_screen("REBOOT")
+
+            cmd = "reboot"
+            threading.Thread(target=self._countdown_and_execute, args=(cmd, delay)).start()
+            return f"Rebooting in {delay} seconds..."
 
     def _countdown_and_execute(self, cmd, delay):
         """
